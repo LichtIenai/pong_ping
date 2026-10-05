@@ -27,13 +27,19 @@ No build step: plain ES modules shared between the Node server and the browser
 
 ## How to play
 
+- The arena is a flat-bottomed polygon. By default **your own wall is shown at
+  the bottom of your screen**; you can switch to a shared view in the menu or
+  with the `View` button in the HUD.
 - The ball bounces inside the arena. Your paddle slides along your side.
 - **Ball past your paddle** → you lose a life and the ball re-serves toward you.
-- **Eliminated** → you keep watching and receive **2 obstacle charges**:
+- **Eliminated** → the arena **shrinks** to the remaining players (square →
+  triangle → two parallel walls for a head-to-head duel). You keep watching and
+  receive **2 obstacle charges**:
   - **Vortex** — pulls the ball in and spits it out in a random direction at a
     randomized speed.
   - **Barrier** — a solid segment that rebounds the ball; it shatters after
     3 bounces or expires after ~18 s.
+  Obstacles that no longer fit the smaller arena are washed away.
 - The host can turn obstacles off, or raise/lower the number of lives (1–10).
 - **Speed ramp**: while nobody is losing a life, the ball speeds up over time
   (Off / Slow / Normal / Fast, up to 3×). Every goal resets the ramp.
@@ -44,8 +50,9 @@ Controls:
 
 - **Mouse / touch**: drag anywhere — the paddle follows the projection of your
   pointer onto your side.
-- **Keyboard**: `←` / `A` rotates counter-clockwise, `→` / `D` clockwise.
-  Movement is rotational, so it feels consistent no matter which side you own.
+- **Keyboard**: `←` / `A` and `→` / `D`. In the default own-side view they move
+  your paddle left/right on screen; in shared view they rotate
+  counter-clockwise/clockwise around the arena.
 - **Esc**: in PvE, pauses; while placing an obstacle, cancels placement.
 
 ## Hosting on Render
@@ -94,12 +101,13 @@ shared/engine.js       the authoritative simulation (ball, paddles, lives, ramp,
                        obstacles, placements, snapshots, events)
 shared/ai.js           bot paddles (reaction, error, prediction) + bot placement
 shared/protocol.js     name/settings sanitising
-public/                Canvas 2D client: renderer, input, net, PvE, HUD, sfx
+public/                Canvas 2D client: renderer, input, net, prediction, PvE, HUD, sfx
 tests/                 node:test suites (geometry, engine, room behaviour)
 ```
 
 Netcode: the server simulates at 60 Hz and broadcasts compact snapshots at
-30 Hz; clients interpolate ~120 ms behind. Inputs are clamped targets
+30 Hz; clients interpolate with an RTT-adaptive delay (60–120 ms) and predict
+their own paddle locally for instant response. Inputs are clamped targets
 (0–1 along the side), placements are validated server-side against the arena
 margins and other obstacles. Reconnecting with the stored room token inside
 the 45 s grace window reclaims your seat; the host automatically migrates if
@@ -109,8 +117,9 @@ the host leaves.
 
 Most gameplay knobs live in `shared/constants.js`:
 
-- `WORLD` — arena radius, paddle size/speed, spin, ball speed presets, ramp
-  delay, intermission length.
+- `WORLD` — arena radius, paddle size and slide speed (`PADDLE_TRAVERSE` sets
+  the seconds to cross an edge, clamped by `PADDLE_SPEED_MIN/MAX`), spin, ball
+  speed presets, ramp delay, intermission length.
 - `OBSTACLE` — barrier/vortex size, lifetime, force, placement margins.
 - `BOT_SKILLS` — reaction time, aim error, prediction chance, placement delay.
 

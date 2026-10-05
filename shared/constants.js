@@ -7,7 +7,9 @@ export const WORLD = {
   PADDLE_LEN_FRAC: 0.34,  // paddle length as a fraction of the side length
   PADDLE_MIN: 80,
   PADDLE_MAX: 190,
-  PADDLE_SPEED: 950,      // units/s the paddle can travel along its side
+  PADDLE_TRAVERSE: 0.3,   // seconds to slide edge-to-edge (speed scales with side length)
+  PADDLE_SPEED_MIN: 950,  // units/s floor for small sides
+  PADDLE_SPEED_MAX: 2000, // units/s ceiling for big sides
   PADDLE_SPIN: 0.55,      // radians of english added from contact offset
   PADDLE_MAX_ANGLE: 1.05, // max bounce deviation from a straight return (rad)
   BASE_SPEED: 430,

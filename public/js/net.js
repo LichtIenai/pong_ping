@@ -19,6 +19,8 @@ export class NetSession {
     this.lastSnap = null;
     this.lastSent = -1;
     this.lastSentAt = 0;
+    this.rtt = 0;
+    this._pingTimer = null;
   }
 
   connect() {
@@ -40,6 +42,7 @@ export class NetSession {
     ws.onopen = () => {
       this.retry = 500;
       this.hooks.onStatus?.('connected');
+      this._startPing();
       if (this.mode === 'create') {
         this._send({ t: 'create', name: this.name, settings: this.settings });
       } else {
@@ -72,6 +75,13 @@ export class NetSession {
     setTimeout(() => this._open(), delay);
   }
 
+  _startPing() {
+    clearInterval(this._pingTimer);
+    const ping = () => this._send({ t: 'ping', ts: performance.now() });
+    ping();
+    this._pingTimer = setInterval(ping, 3000);
+  }
+
   _onMsg(msg) {
     switch (msg.t) {
       case 'joined':
@@ -102,7 +112,8 @@ export class NetSession {
         this.hooks.onError?.(msg.msg || 'Server error');
         break;
       case 'pong':
-        this.hooks.onPong?.(msg.ts);
+        this.rtt = Math.max(0, performance.now() - Number(msg.ts || 0));
+        this.hooks.onPong?.(this.rtt);
         break;
       default:
         break;
@@ -151,6 +162,7 @@ export class NetSession {
 
   leave() {
     this.closed = true;
+    clearInterval(this._pingTimer);
     this._send({ t: 'leave' });
     try { this.ws?.close(); } catch { /* ignore */ }
   }

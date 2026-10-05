@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Game, checkPlacement, arenaSidesFor, sideSlots } from '../shared/engine.js';
+import { Game, checkPlacement, arenaSidesFor, sideSlots, paddleSpeedFor, advancePaddle } from '../shared/engine.js';
 import { sideU } from '../shared/geometry.js';
 import { WORLD, OBSTACLE } from '../shared/constants.js';
 
@@ -230,6 +230,64 @@ test('line obstacle validates via checkPlacement and reflects the ball', () => {
   }
   assert.ok(bounced, 'ball bounced off the barrier');
   assert.ok(game.ball.vx < 0, 'velocity reversed by the barrier');
+});
+
+test('paddle speed scales with side length and keeps traversal ~0.3s', () => {
+  assert.equal(paddleSpeedFor(70), WORLD.PADDLE_SPEED_MIN);
+  assert.equal(paddleSpeedFor(100000), WORLD.PADDLE_SPEED_MAX);
+  const big = paddleSpeedFor(489);
+  assert.ok(Math.abs(big - 489 / WORLD.PADDLE_TRAVERSE) < 1e-6);
+  assert.equal(advancePaddle(0, 1, big, WORLD.PADDLE_TRAVERSE, 0, 489), 489);
+  assert.equal(advancePaddle(0, 0.5, 100, 1, 0, 100), 50);
+  assert.equal(advancePaddle(0, 2, 1000, 1, 0, 100), 100, 'targets are clamped');
+});
+
+test('arena morphs as players are eliminated (4 -> 3 -> 2)', () => {
+  const game = makeGame(4, { lives: 1 });
+  const [a, b, c, d] = game.players;
+  assert.equal(game.n, 4);
+
+  game._goal(a, game.poly.sides[a.side]);
+  assert.equal(a.alive, false);
+  assert.equal(game.n, 3, 'square becomes a triangle');
+  assert.ok(game.events.some((e) => e.t === 'shrink' && e.n === 3));
+  assert.equal(a.charges, 2);
+  const sides = new Set([b, c, d].map((p) => p.side));
+  assert.equal(sides.size, 3, 'survivors get unique sides');
+  assert.ok([...sides].every((s) => s >= 0 && s < 3));
+  assert.equal(game.ball.x, 0, 'ball is parked for the serve');
+
+  game._goal(b, game.poly.sides[b.side]);
+  assert.equal(game.n, 4, 'two survivors get the head-to-head rectangle');
+  assert.deepEqual([c, d].map((p) => p.side).sort(), [0, 2], 'walls are bottom and top');
+  assert.ok(!game.ownerBySide.has(1) && !game.ownerBySide.has(3), 'end walls are neutral');
+
+  const meta = game.meta;
+  assert.equal(meta.find((m) => m.id === a.id).side, null, 'eliminated players have no side');
+  assert.equal(meta.filter((m) => m.side !== null).length, 2);
+});
+
+test('arena shrink washes away obstacles that no longer fit', () => {
+  const game = makeGame(4, { lives: 1 });
+  game.obstacles.push({
+    kind: 'vortex', x: 0, y: 200, outer: 72, core: 22, ownerId: 'x', life: 10, lifeMax: 15,
+  });
+  const a = game.players[0];
+  game._goal(a, game.poly.sides[a.side]);
+  assert.equal(game.n, 3);
+  assert.equal(game.obstacles.length, 0, 'vortex near the old bottom wall is washed away');
+  assert.ok(game.events.some((e) => e.t === 'wash'), 'wash event emitted');
+});
+
+test('removing a player mid-rally queues the morph until the next serve', () => {
+  const game = makeGame(4, { lives: 3 });
+  game._serve();
+  assert.equal(game.phase, 'play');
+  game.removePlayer(game.players[3].id);
+  assert.equal(game.n, 4, 'shape stays during the rally');
+  assert.equal(game._shrinkPending, true);
+  game._serve();
+  assert.equal(game.n, 3, 'morph applied on the next serve');
 });
 
 test('20-player soak: no crashes, NaN, or escapees', () => {

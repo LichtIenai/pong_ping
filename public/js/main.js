@@ -5,6 +5,7 @@ import { Renderer } from './renderer.js';
 import { InputController } from './input.js';
 import { PveSession } from './pve.js';
 import { NetSession } from './net.js';
+import { PaddlePredictor } from './predict.js';
 import { sfx } from './sfx.js';
 import * as ui from './ui.js';
 
@@ -18,6 +19,8 @@ const state = {
   arena: null,       // { n, r, players }
   snap: null,        // last snapshot
   settings: { ...DEFAULT_SETTINGS },
+  viewMode: 'own',
+  predictedPc: null,
   paused: false,
   placing: null,
 };
@@ -26,6 +29,7 @@ const nameInput = ui.$('#name-input');
 const joinCodeInput = ui.$('#join-code');
 const canvas = ui.$('#canvas');
 const renderer = new Renderer(canvas);
+const predictor = new PaddlePredictor();
 
 // ------------------------------------------------------------------ identity
 
@@ -146,6 +150,28 @@ soundBtn.addEventListener('click', () => {
 });
 refreshSound();
 
+// --------------------------------------------------------------------- camera
+
+function setViewMode(mode) {
+  state.viewMode = mode === 'shared' ? 'shared' : 'own';
+  localStorage.setItem('pp:view', state.viewMode);
+  renderer.setViewMode(state.viewMode);
+  ui.$$('[data-view]').forEach((b) => {
+    b.classList.toggle('active', b.dataset.view === state.viewMode);
+  });
+  ui.$('#btn-view').textContent = state.viewMode === 'own' ? 'View: Mine' : 'View: Shared';
+  updateHint();
+}
+
+ui.$('#menu-view').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-view]');
+  if (b) setViewMode(b.dataset.view);
+});
+ui.$('#btn-view').addEventListener('click', () => {
+  setViewMode(state.viewMode === 'own' ? 'shared' : 'own');
+});
+setViewMode(localStorage.getItem('pp:view') === 'shared' ? 'shared' : 'own');
+
 ui.$('#powerbar').addEventListener('click', (e) => {
   const place = e.target.closest('[data-place]');
   const cancel = e.target.closest('[data-cancel]');
@@ -170,6 +196,7 @@ ui.$('#powerbar').addEventListener('click', (e) => {
 
 function setArena(arena) {
   state.arena = arena;
+  predictor.ready = false;
   renderer.setArena(arena, arena ? arena.players : []);
   renderer.setYou(state.you);
 }
@@ -189,6 +216,7 @@ function nameOf(id) {
 function enterGame() {
   ui.hideOverlay();
   ui.showScreen('screen-game');
+  renderer.delay = state.mode === 'pve' ? 0.016 : 0.07;
   requestAnimationFrame(() => renderer.resize());
   updateHud();
 }
@@ -204,6 +232,9 @@ function quitGame() {
   state.snap = null;
   state.paused = false;
   state.placing = null;
+  state.predictedPc = null;
+  predictor.ready = false;
+  renderer.selfPc = null;
   renderer.setArena(null, []);
   input.cancelPlacement(true);
   ui.hideOverlay();
@@ -375,7 +406,34 @@ function renderLobby() {
 function onState(snap) {
   state.snap = snap;
   renderer.pushSnapshot(snap);
+  if (state.mode === 'net') {
+    const me = snap.players.find((p) => p.id === state.you);
+    if (me && me.al === 1) predictor.reconcile(me.pc);
+  }
   updateHud();
+}
+
+/** Local prediction keeps your own paddle instant; snapshots correct the drift. */
+function updatePrediction(dt) {
+  if (state.mode !== 'net' || !state.snap || !renderer.poly || !state.arena) {
+    renderer.selfPc = null;
+    state.predictedPc = null;
+    return;
+  }
+  const me = state.snap.players.find((p) => p.id === state.you);
+  const side = me && me.al === 1 && me.side !== null && me.side !== undefined
+    ? renderer.poly.sides[me.side]
+    : null;
+  if (!side || !predictor.ready) {
+    renderer.selfPc = null;
+    state.predictedPc = null;
+    return;
+  }
+  predictor.configure(side.len, renderer.paddleLen);
+  predictor.setTarget(input.target);
+  predictor.step(dt);
+  renderer.selfPc = predictor.pc;
+  state.predictedPc = predictor.pc;
 }
 
 function updateHud() {
@@ -399,8 +457,12 @@ function updateHint() {
       : '';
     return;
   }
-  el.textContent = me.al === 0
-    ? 'Place your obstacles on the arena. Esc cancels placement.'
+  if (me.al === 0) {
+    el.textContent = 'Place your obstacles on the arena. Esc cancels placement.';
+    return;
+  }
+  el.textContent = state.viewMode === 'own'
+    ? 'Drag anywhere, or ←/→ to slide along your edge.'
     : 'Drag anywhere, or ←/→ to rotate (left = counter-clockwise).';
 }
 
@@ -489,6 +551,16 @@ function onEvents(list) {
       case 'place':
         ui.feed(`${nameOf(e.id)} placed a ${e.kind === 'line' ? 'barrier' : 'vortex'}`, 'place');
         break;
+      case 'shrink':
+        ui.feed(
+          e.alive === 2 ? 'Arena becomes a head-to-head duel!' : `Arena shrinks to ${e.n} sides!`,
+          'win',
+        );
+        sfx.shrink();
+        break;
+      case 'wash':
+        ui.feed(`${e.count} obstacle${e.count > 1 ? 's' : ''} washed away`, 'warn');
+        break;
       case 'vortex':
         sfx.vortex();
         break;
@@ -535,7 +607,12 @@ function loop(t) {
   } else {
     state.session?.update(0);
   }
+  if (state.mode === 'net') {
+    const rtt = state.session?.rtt ?? 0;
+    renderer.delay = Math.min(0.12, Math.max(0.06, 0.05 + rtt / 1000));
+  }
   input.update(dt);
+  updatePrediction(dt);
   renderer.render(now);
   requestAnimationFrame(loop);
 }

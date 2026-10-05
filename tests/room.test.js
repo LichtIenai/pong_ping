@@ -113,6 +113,24 @@ test('room: disconnects keep the seat during grace, removal turns the side into 
   assert.equal(room.phase, 'intermission');
 });
 
+test('room rebroadcasts the arena when it morphs', () => {
+  const { room, clients, members } = makeRoom(3);
+  room.startRound();
+  assert.equal(room.game.n, 3);
+  const bob = room.game.byId.get(members[1].id);
+  bob.lives = 1;
+  room.game._goal(bob, room.game.poly.sides[bob.side]);
+  room.tick(1 / 60);
+  const arenas = received(clients[0]).filter((m) => m.t === 'arena');
+  assert.ok(arenas.some((m) => m.n === 4), 'head-to-head arena was broadcast after the morph');
+  const last = arenas[arenas.length - 1];
+  assert.deepEqual(
+    last.players.filter((p) => p.side !== null).map((p) => p.side).sort(),
+    [0, 2],
+    'survivors own the bottom and top walls',
+  );
+});
+
 test('room: settings are clamped and half-time changes are locked', () => {
   const { room, clients } = makeRoom(2);
   room.handle(clients[0], {

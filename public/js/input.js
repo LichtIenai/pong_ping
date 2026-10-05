@@ -1,7 +1,8 @@
 // Paddle input: keyboard rotation + pointer drag, plus obstacle placement mode.
 
 import { sideU } from '/shared/geometry.js';
-import { WORLD, OBSTACLE } from '/shared/constants.js';
+import { OBSTACLE } from '/shared/constants.js';
+import { paddleSpeedFor } from '/shared/engine.js';
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const CCW = -1;
@@ -85,7 +86,14 @@ export class InputController {
     for (const d of this.keys) dir += d;
     if (dir === 0) return;
     const usable = Math.max(1, ctx.side.len - ctx.paddleLen);
-    this.target = clamp(this.target + (dir * WORLD.PADDLE_SPEED * dt) / usable, 0, 1);
+    let sign = 1;
+    if (this.renderer.viewMode === 'own') {
+      // In own-side view, ←/→ should track the screen, not the world winding order.
+      const v = this.renderer.viewAngle;
+      const tx = ctx.side.tx * Math.cos(v) - ctx.side.ty * Math.sin(v);
+      sign = tx >= 0 ? 1 : -1;
+    }
+    this.target = clamp(this.target + (dir * sign * paddleSpeedFor(usable) * dt) / usable, 0, 1);
     this._emit(false);
   }
 
@@ -93,7 +101,7 @@ export class InputController {
     const now = performance.now();
     if (!force) {
       if (Math.abs(this.target - this.lastSent) < 0.002) return;
-      if (now - this.lastSentAt < 60) return;
+      if (now - this.lastSentAt < 40) return;
     }
     this.lastSent = this.target;
     this.lastSentAt = now;

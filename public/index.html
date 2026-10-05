@@ -22,6 +22,14 @@
       <input id="name-input" maxlength="16" autocomplete="off" spellcheck="false" placeholder="Player1234">
     </label>
 
+    <div class="field">
+      <span>Camera</span>
+      <div class="seg" id="menu-view">
+        <button type="button" data-view="own" class="active">Your side at bottom</button>
+        <button type="button" data-view="shared">Shared view</button>
+      </div>
+    </div>
+
     <div class="menu-buttons">
       <button id="btn-pve" class="btn big">Play vs Bots</button>
       <button id="btn-host" class="btn big accent">Create Room</button>
@@ -94,6 +102,7 @@
       <div id="hud-label" class="chip mono"></div>
       <div class="spacer"></div>
       <div id="hud-mult" class="chip mono"></div>
+      <button id="btn-view" class="chip">View: Mine</button>
       <button id="btn-sound" class="chip">Sound: On</button>
     </div>
 

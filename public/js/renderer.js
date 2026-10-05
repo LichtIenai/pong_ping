@@ -21,6 +21,10 @@ export class Renderer {
     this.snaps = [];
     this.trail = [];
     this.placement = null;
+    this.viewMode = 'own';    // 'own' = your side flat at the bottom, 'shared' = side 0 at the bottom
+    this.viewAngle = 0;
+    this.delay = 0.07;        // interpolation delay in seconds
+    this.selfPc = null;       // predicted paddle position override for the local player
     this.resize();
     window.addEventListener('resize', () => this.resize());
   }
@@ -45,19 +49,47 @@ export class Renderer {
       this.paddleLen = 0;
       this.metaById = new Map();
       this.metaBySide = new Map();
+      this._computeViewAngle();
       return;
     }
     this.poly = polygon(arena.n, arena.r);
     this.paddleLen = paddleLenFor(this.poly);
     this.metaById = new Map((players || []).map((p) => [p.id, p]));
-    this.metaBySide = new Map((players || []).map((p) => [p.side, p]));
+    // Eliminated players have side null; they must not claim a wall.
+    this.metaBySide = new Map(
+      (players || []).filter((p) => p.side !== null && p.side !== undefined).map((p) => [p.side, p]),
+    );
     this.snaps = [];
     this.trail = [];
+    this.selfPc = null;
     this.resize();
+    this._computeViewAngle();
   }
 
   setYou(id) {
     this.you = id;
+    this._computeViewAngle();
+  }
+
+  setViewMode(mode) {
+    this.viewMode = mode === 'shared' ? 'shared' : 'own';
+    this._computeViewAngle();
+  }
+
+  _computeViewAngle() {
+    if (!this.poly || this.viewMode !== 'own') {
+      this.viewAngle = 0;
+      return;
+    }
+    const me = this.metaById.get(this.you);
+    const side = me && me.side !== null && me.side !== undefined
+      ? this.poly.sides[me.side]
+      : null;
+    if (!side) {
+      this.viewAngle = 0; // spectators / eliminated: side 0 is already at the bottom
+      return;
+    }
+    this.viewAngle = Math.PI / 2 - Math.atan2(side.cy, side.cx);
   }
 
   pushSnapshot(snap) {
@@ -71,17 +103,20 @@ export class Renderer {
 
   screenToWorld(clientX, clientY) {
     const rect = this.canvas.getBoundingClientRect();
-    return {
-      x: (clientX - rect.left - this.cx) / this.scale,
-      y: (clientY - rect.top - this.cy) / this.scale,
-    };
+    const sx = (clientX - rect.left - this.cx) / this.scale;
+    const sy = (clientY - rect.top - this.cy) / this.scale;
+    if (!this.viewAngle) return { x: sx, y: sy };
+    const c = Math.cos(this.viewAngle);
+    const s = Math.sin(this.viewAngle);
+    // inverse of the render rotation
+    return { x: sx * c + sy * s, y: -sx * s + sy * c };
   }
 
   _interp() {
     const arr = this.snaps;
     if (!arr.length) return null;
     const now = performance.now() / 1000;
-    const target = now - 0.12;
+    const target = now - this.delay;
     if (arr.length === 1 || arr[arr.length - 1].t <= target) {
       const s = arr[arr.length - 1].s;
       return { ball: s.ball, players: s.players, snap: s };
@@ -122,6 +157,7 @@ export class Renderer {
     const st = this._interp();
     const scale = this.scale * this.dpr;
     ctx.setTransform(scale, 0, 0, scale, this.cx * this.dpr, this.cy * this.dpr);
+    if (this.viewAngle) ctx.rotate(this.viewAngle);
 
     this._drawArena(ctx, st);
     this._drawObstacles(ctx, st, now);
@@ -175,8 +211,9 @@ export class Renderer {
 
       if (!sp) continue;
       const h = this.paddleLen / 2;
-      const u0 = Math.max(0, sp.pc - h);
-      const u1 = Math.min(side.len, sp.pc + h);
+      const pc = (meta.id === this.you && this.selfPc !== null) ? this.selfPc : sp.pc;
+      const u0 = Math.max(0, pc - h);
+      const u1 = Math.min(side.len, pc + h);
       const a = { x: side.p0.x + side.tx * u0, y: side.p0.y + side.ty * u0 };
       const b = { x: side.p0.x + side.tx * u1, y: side.p0.y + side.ty * u1 };
       ctx.save();
@@ -277,9 +314,13 @@ export class Renderer {
       const x = side.cx + side.nx * 26;
       const y = side.cy + side.ny * 26;
       const label = meta.id === this.you ? `${meta.name} (you)` : meta.name;
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(-this.viewAngle);
       ctx.globalAlpha = alive ? 0.95 : 0.35;
       ctx.fillStyle = meta.color;
-      ctx.fillText(label, x, y);
+      ctx.fillText(label, 0, 0);
+      ctx.restore();
     }
     ctx.restore();
   }

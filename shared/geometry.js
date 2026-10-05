@@ -11,8 +11,10 @@
  */
 export function polygon(n, r) {
   const verts = [];
+  // Rotate so side 0 is the horizontal bottom edge (flat-bottom arenas).
+  const offset = Math.PI - Math.PI / n;
   for (let i = 0; i < n; i++) {
-    const a = -Math.PI / 2 + (i * 2 * Math.PI) / n;
+    const a = -Math.PI / 2 + offset + (i * 2 * Math.PI) / n;
     verts.push({ x: r * Math.cos(a), y: r * Math.sin(a) });
   }
   const sides = [];

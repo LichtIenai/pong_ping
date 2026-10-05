@@ -54,6 +54,10 @@ export const sfx = {
   place() {
     tone(520, 0.12, { type: 'triangle', gain: 0.04, slide: 380 });
   },
+  shrink() {
+    tone(340, 0.4, { type: 'sawtooth', gain: 0.05, slide: -140 });
+    tone(170, 0.5, { type: 'triangle', gain: 0.04, delay: 0.1, slide: -60 });
+  },
   vortex() {
     tone(160, 0.45, { type: 'sine', gain: 0.05, slide: 700 });
   },

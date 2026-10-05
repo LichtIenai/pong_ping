@@ -35,6 +35,18 @@ test('pointSegDist and segSegDist', () => {
   assert.equal(segSegDist(0, 0, 10, 0, 0, 5, 10, 5), 5, 'parallel segments');
 });
 
+test('flat-bottom: side 0 is the horizontal bottom edge for any n', () => {
+  for (const n of [3, 4, 5, 10]) {
+    const p = polygon(n, 100);
+    const s = p.sides[0];
+    assert.ok(Math.abs(s.nx) < 1e-9 && s.ny > 0.999, `${n}-gon side 0 faces down`);
+    assert.ok(Math.abs(s.ty) < 1e-9 && Math.abs(s.tx) > 0.999, `${n}-gon side 0 is horizontal`);
+    assert.ok(s.cy > 0, `${n}-gon side 0 sits at the bottom`);
+  }
+  const square = polygon(4, 100);
+  assert.ok(Math.abs(square.sides[0].cy - 100 * Math.cos(Math.PI / 4)) < 1e-9, 'square is axis-aligned');
+});
+
 test('insideMargin distinguishes safe and wall-hugging points', () => {
   const p = polygon(3, 480);
   assert.ok(insideMargin(p, 0, 0, 60));

@@ -27,6 +27,20 @@ export function paddleLenFor(poly) {
   return clamp(poly.sides[0].len * WORLD.PADDLE_LEN_FRAC, WORLD.PADDLE_MIN, WORLD.PADDLE_MAX);
 }
 
+/** Paddle speed scales with the usable edge so every arena slides in ~PADDLE_TRAVERSE seconds. */
+export function paddleSpeedFor(usableLen, speedFactor = 1) {
+  const base = clamp(usableLen / WORLD.PADDLE_TRAVERSE, WORLD.PADDLE_SPEED_MIN, WORLD.PADDLE_SPEED_MAX);
+  return base * speedFactor;
+}
+
+/** Move a paddle along its side toward a normalized target. Shared by the engine and prediction. */
+export function advancePaddle(pc, target, speed, dt, min, max) {
+  const t = Number(target);
+  const desired = min + clamp(Number.isFinite(t) ? t : 0, 0, 1) * (max - min);
+  const step = speed * dt;
+  return clamp(pc + clamp(desired - pc, -step, step), min, max);
+}
+
 /** Normalize obstacle entries coming from snapshots ({k:'l'|'v'}) for checkPlacement. */
 export function normalizeObstacle(o) {
   if (o.kind === 'line' || o.kind === 'vortex') return o;
@@ -111,6 +125,8 @@ export class Game {
     this.players = participants.map((p, idx) => {
       const side = slots[idx];
       const s = this.poly.sides[side];
+      const usable = Math.max(1, s.len - this.paddleLen);
+      const speedFactor = p.speedFactor ?? 1;
       return {
         id: p.id,
         name: p.name,
@@ -125,7 +141,8 @@ export class Game {
         removed: false,
         connected: true,
         charges: 0,
-        paddleSpeed: WORLD.PADDLE_SPEED * (p.speedFactor ?? 1),
+        speedFactor,
+        paddleSpeed: paddleSpeedFor(usable, speedFactor),
       };
     });
     this.byId = new Map(this.players.map((p) => [p.id, p]));
@@ -141,6 +158,7 @@ export class Game {
     this.time = 0;
     this.winnerId = null;
     this._serveBias = null;
+    this._shrinkPending = false;
   }
 
   get baseSpeed() {
@@ -153,10 +171,14 @@ export class Game {
     return c;
   }
 
-  /** Participant metadata for the arena/roster message (includes sides). */
+  /** Participant metadata for the arena/roster message (eliminated players have side null). */
   get meta() {
     return this.players.map((p) => ({
-      id: p.id, side: p.side, name: p.name, color: p.color, isBot: p.isBot,
+      id: p.id,
+      side: p.alive && !p.removed ? p.side : null,
+      name: p.name,
+      color: p.color,
+      isBot: p.isBot,
     }));
   }
 
@@ -240,6 +262,71 @@ export class Game {
     p.charges = 0;
     this.ownerBySide.delete(p.side);
     this._maybeFinish();
+    if (this.phase !== 'over' && this.players.filter((q) => q.alive && !q.removed).length >= 2) {
+      this._shrinkPending = true;
+    }
+  }
+
+  /**
+   * Morph the arena to the current survivors: alive >= 3 keeps a flat-bottom
+   * regular polygon, alive == 2 becomes two parallel player walls (a rectangle
+   * with bounce end-walls). Survivors keep angular order and their normalized
+   * position along the new side; obstacles that no longer fit are washed away.
+   */
+  _rebuildArena() {
+    const alive = this.players.filter((p) => p.alive && !p.removed);
+    if (alive.length < 2) return;
+
+    const oldPoly = this.poly;
+    const oldPaddleLen = this.paddleLen;
+    const order = alive
+      .map((p) => ({ p, ang: Math.atan2(oldPoly.sides[p.side].cy, oldPoly.sides[p.side].cx) }))
+      .sort((a, b) => a.ang - b.ang);
+
+    const n = arenaSidesFor(alive.length);
+    const poly = polygon(n, WORLD.R);
+    this.n = n;
+    this.poly = poly;
+    this.paddleLen = paddleLenFor(poly);
+    const slots = sideSlots(n, alive.length);
+
+    this.ownerBySide = new Map();
+    order.forEach(({ p }, idx) => {
+      const oldSide = oldPoly.sides[p.side];
+      const oldUsable = Math.max(1, oldSide.len - oldPaddleLen);
+      const tNorm = clamp((p.pc - oldPaddleLen / 2) / oldUsable, 0, 1);
+      const sideIdx = slots[idx % slots.length];
+      const newSide = poly.sides[sideIdx];
+      const h = this.paddleLen / 2;
+      const usable = Math.max(1, newSide.len - this.paddleLen);
+      p.side = sideIdx;
+      p.pc = clamp(h + tNorm * usable, h, newSide.len - h);
+      p.pv = 0;
+      p.paddleSpeed = paddleSpeedFor(usable, p.speedFactor);
+      this.ownerBySide.set(sideIdx, p);
+    });
+
+    // Wash away obstacles that no longer fit the smaller hull.
+    const kept = [];
+    let dropped = 0;
+    for (const o of this.obstacles) {
+      const norm = normalizeObstacle(o);
+      const params = norm.kind === 'line'
+        ? {
+            x: (norm.x0 + norm.x1) / 2,
+            y: (norm.y0 + norm.y1) / 2,
+            angle: Math.atan2(norm.y1 - norm.y0, norm.x1 - norm.x0),
+          }
+        : { x: norm.x, y: norm.y };
+      if (checkPlacement(poly, kept, norm.kind, params).ok) kept.push(o);
+      else dropped++;
+    }
+    if (dropped > 0) {
+      this.obstacles = kept;
+      this.events.push({ t: 'wash', count: dropped });
+    }
+
+    this.events.push({ t: 'shrink', n, alive: alive.length });
   }
 
   // ----------------------------------------------------------------- internals
@@ -251,21 +338,23 @@ export class Game {
       const h = this.paddleLen / 2;
       const min = h;
       const max = side.len - h;
-      let desired = p.pc;
       let t;
       if (inputs) t = typeof inputs.get === 'function' ? inputs.get(p.id) : inputs[p.id];
-      if (t !== undefined && t !== null) {
-        const num = Number(t);
-        desired = min + (Number.isFinite(num) ? clamp(num, 0, 1) : 0) * (max - min);
-      }
-      const step = p.paddleSpeed * dt;
       const prev = p.pc;
-      p.pc = clamp(p.pc + clamp(desired - p.pc, -step, step), min, max);
+      if (t !== undefined && t !== null) {
+        p.pc = advancePaddle(p.pc, t, p.paddleSpeed, dt, min, max);
+      } else {
+        p.pc = clamp(p.pc, min, max);
+      }
       p.pv = dt > 0 ? (p.pc - prev) / dt : 0;
     }
   }
 
   _serve() {
+    if (this._shrinkPending) {
+      this._shrinkPending = false;
+      this._rebuildArena();
+    }
     const bias = this._serveBias;
     this._serveBias = null;
     let ang;
@@ -485,6 +574,7 @@ export class Game {
       this.phase = 'over';
       this.events.push({ t: 'over', id: this.winnerId });
     } else {
+      if (!owner.alive) this._rebuildArena();
       this.phase = 'serve';
       this.serveTimer = WORLD.SERVE_DELAY;
       // serve back toward the player who just conceded

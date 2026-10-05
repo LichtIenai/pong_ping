@@ -293,7 +293,12 @@ export class Room {
     if (this.phase === 'playing' && this.game) {
       this.game.tick(dt, this.inputs);
       const ev = this.game.drainEvents();
-      if (ev.length) this.broadcast({ t: 'events', list: ev });
+      if (ev.length) {
+        this.broadcast({ t: 'events', list: ev });
+        if (ev.some((e) => e.t === 'shrink') && this.arenaPayload()) {
+          this.broadcast({ t: 'arena', ...this.arenaPayload() });
+        }
+      }
       this.stateAcc += dt;
       if (this.stateAcc >= 1 / 30) {
         this.stateAcc = 0;

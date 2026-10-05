@@ -75,7 +75,12 @@ export class PveSession {
     this._handleBotPlacements();
     const events = g.drainEvents();
     this._emitState();
-    if (events.length) this.hooks.onEvents?.(events);
+    if (events.length) {
+      this.hooks.onEvents?.(events);
+      if (events.some((e) => e.t === 'shrink')) {
+        this.hooks.onArena?.({ n: this.game.n, r: WORLD.R, players: this.game.meta });
+      }
+    }
   }
 
   setInput(t) {
