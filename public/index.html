@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#070b14">
+<title>Polygon Pong</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><polygon points='50,6 94,50 50,94 6,50' fill='none' stroke='%234aa8ff' stroke-width='7'/><circle cx='50' cy='50' r='9' fill='%23f2fbff'/></svg>">
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div id="toasts"></div>
+
+<!-- ============================== MENU ============================== -->
+<section id="screen-menu" class="screen active">
+  <div class="panel">
+    <h1 class="logo">POLYGON<span>PONG</span></h1>
+    <p class="tagline">One arena. Everyone owns a side. Lose your paddle, lose a life — last side standing wins.</p>
+
+    <label class="field">
+      <span>Your name</span>
+      <input id="name-input" maxlength="16" autocomplete="off" spellcheck="false" placeholder="Player1234">
+    </label>
+
+    <div class="menu-buttons">
+      <button id="btn-pve" class="btn big">Play vs Bots</button>
+      <button id="btn-host" class="btn big accent">Create Room</button>
+    </div>
+
+    <div class="join-row">
+      <input id="join-code" maxlength="5" autocomplete="off" spellcheck="false" placeholder="ROOM CODE">
+      <button id="btn-join" class="btn">Join</button>
+    </div>
+
+    <details class="how">
+      <summary>How to play</summary>
+      <ul>
+        <li>The arena is a polygon — every player defends one side with a paddle that slides along it.</li>
+        <li>Ball past your paddle: you lose a life. No lives left: you are eliminated.</li>
+        <li>Eliminated? You get <b>2 obstacle charges</b>: a <b>Vortex</b> that whips the ball away at random speed, or a <b>Barrier</b> that rebounds it.</li>
+        <li>Hosts set lives and how fast the ball speeds up the longer nobody concedes.</li>
+        <li>Move with the mouse/finger, or <b>←</b> counter-clockwise and <b>→</b> clockwise.</li>
+      </ul>
+    </details>
+  </div>
+</section>
+
+<!-- ============================ PVE SETUP ============================ -->
+<section id="screen-pve" class="screen">
+  <div class="panel">
+    <h2>Arena vs Bots</h2>
+    <div id="pve-settings" class="settings"></div>
+    <div class="row-end">
+      <button class="btn ghost" data-back>Back</button>
+      <button id="btn-pve-start" class="btn accent">Start</button>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== ROOM ============================== -->
+<section id="screen-room" class="screen">
+  <div class="panel wide">
+    <div class="room-head">
+      <button class="btn ghost small" id="btn-room-leave">Leave</button>
+      <h2>Room <code id="room-code">·····</code></h2>
+      <button id="btn-copy" class="btn small">Copy link</button>
+    </div>
+    <p id="room-status" class="status"></p>
+
+    <div class="room-cols">
+      <div>
+        <h3>Players <span id="player-count" class="dim"></span></h3>
+        <ul id="lobby-players" class="player-list"></ul>
+      </div>
+      <div>
+        <h3>Settings <span id="settings-lock" class="dim"></span></h3>
+        <div id="lobby-settings" class="settings"></div>
+      </div>
+    </div>
+
+    <div class="row-end">
+      <p id="lobby-hint" class="hint"></p>
+      <button id="btn-start" class="btn accent">Start Match</button>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== GAME ============================== -->
+<section id="screen-game" class="screen">
+  <canvas id="canvas"></canvas>
+  <div id="hud">
+    <div class="hud-top">
+      <button id="btn-exit" class="chip">Exit</button>
+      <div id="hud-label" class="chip mono"></div>
+      <div class="spacer"></div>
+      <div id="hud-mult" class="chip mono"></div>
+      <button id="btn-sound" class="chip">Sound: On</button>
+    </div>
+
+    <ul id="hud-players" class="player-list hud-list"></ul>
+    <div id="feed" class="feed"></div>
+
+    <div id="overlay" class="overlay hidden">
+      <div class="overlay-box">
+        <h2 id="ov-title"></h2>
+        <p id="ov-sub"></p>
+        <div id="ov-actions" class="ov-actions"></div>
+      </div>
+    </div>
+
+    <div id="powerbar" class="powerbar hidden">
+      <span id="powerbar-text">You are out — disrupt the survivors:</span>
+      <button class="btn small" data-place="vortex">Vortex</button>
+      <button class="btn small" data-place="line">Barrier</button>
+      <button class="btn small ghost" data-cancel>Cancel</button>
+    </div>
+
+    <div id="hint" class="hint"></div>
+    <div id="conn" class="conn hidden">Reconnecting…</div>
+  </div>
+</section>
+
+<script type="module" src="/js/main.js"></script>
+</body>
+</html>
