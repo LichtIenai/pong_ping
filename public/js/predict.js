@@ -17,10 +17,10 @@ export class PaddlePredictor {
     this.ready = false;
   }
 
-  configure(sideLen, paddleLen) {
+  configure(sideLen, paddleLen, inset = 0) {
     const h = paddleLen / 2;
-    this.min = h;
-    this.max = Math.max(h, sideLen - h);
+    this.min = h + inset;
+    this.max = Math.max(this.min, sideLen - h - inset);
     this.speed = paddleSpeedFor(Math.max(1, sideLen - paddleLen));
   }
 

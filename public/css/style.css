@@ -303,6 +303,39 @@ button.chip:hover { border-color: #2f4570; }
   font-size: 14px;
 }
 
+/* ---------------------------------------------------------- leaderboard */
+
+.ov-extra { margin: 0 0 18px; max-height: 46vh; overflow-y: auto; }
+.leaderboard {
+  border-collapse: collapse;
+  margin: 0 auto;
+  font-size: 13px;
+  min-width: 340px;
+}
+.leaderboard th {
+  color: var(--dim);
+  font-weight: 600;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 4px 9px;
+}
+.leaderboard td { padding: 5px 9px; border-top: 1px solid var(--line-soft); }
+.leaderboard tr.me td { background: rgba(74, 168, 255, 0.12); }
+.leaderboard .rank { color: var(--dim); width: 20px; }
+.leaderboard .who { text-align: left; white-space: nowrap; }
+.leaderboard .dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  display: inline-block;
+  margin-right: 7px;
+  vertical-align: middle;
+}
+.leaderboard .num { text-align: center; font-family: ui-monospace, monospace; width: 34px; }
+.standings-title { margin-top: 20px; }
+.standings .leaderboard { margin: 0; min-width: 0; width: 100%; }
+
 /* ----------------------------------------------------------------- toasts */
 
 #toasts {

@@ -45,6 +45,9 @@ No build step: plain ES modules shared between the Node server and the browser
   (Off / Slow / Normal / Fast, up to 3×). Every goal resets the ramp.
 - Last player with lives remaining wins the round; rounds restart automatically
   with everyone who is connected (the arena grows/shrinks to the player count).
+- **Standings**: every round end shows a leaderboard — rounds won, lives lost,
+  times eliminated and obstacles placed — and the same table lives in the room
+  lobby between matches.
 
 Controls:
 

@@ -17,6 +17,7 @@ export class PveSession {
     this.interT = 0;
     this.roundNo = 0;
     this.pendingPlacements = [];
+    this.stats = new Map();
     this._newRound();
   }
 
@@ -48,6 +49,7 @@ export class PveSession {
     this.input = 0.5;
     this.hooks.onArena?.({ n: this.game.n, r: WORLD.R, players: this.game.meta });
     this._emitState();
+    this.hooks.onStats?.(this._statsList());
   }
 
   update(dt) {
@@ -57,6 +59,7 @@ export class PveSession {
     if (this.interT > 0) {
       this.interT -= dt;
       const events = g.drainEvents();
+      this._recordStats(events);
       this._emitState();
       if (events.length) this.hooks.onEvents?.(events);
       if (this.interT <= 0) this._newRound();
@@ -64,7 +67,10 @@ export class PveSession {
     }
     if (g.phase === 'over') {
       this.interT = WORLD.INTERMISSION;
+      const events = g.drainEvents();
+      this._recordStats(events);
       this._emitState();
+      if (events.length) this.hooks.onEvents?.(events);
       return;
     }
 
@@ -76,11 +82,53 @@ export class PveSession {
     const events = g.drainEvents();
     this._emitState();
     if (events.length) {
+      this._recordStats(events);
       this.hooks.onEvents?.(events);
       if (events.some((e) => e.t === 'shrink')) {
         this.hooks.onArena?.({ n: this.game.n, r: WORLD.R, players: this.game.meta });
       }
     }
+  }
+
+  _stat(id) {
+    let s = this.stats.get(id);
+    if (!s) {
+      s = { wins: 0, losses: 0, elims: 0, placed: 0 };
+      this.stats.set(id, s);
+    }
+    return s;
+  }
+
+  _recordStats(events) {
+    let changed = false;
+    for (const e of events) {
+      if (e.t === 'goal') {
+        this._stat(e.id).losses++;
+        changed = true;
+      } else if (e.t === 'elim') {
+        this._stat(e.id).elims++;
+        changed = true;
+      } else if (e.t === 'over' && e.id) {
+        this._stat(e.id).wins++;
+        changed = true;
+      } else if (e.t === 'place') {
+        this._stat(e.id).placed++;
+        changed = true;
+      }
+    }
+    if (changed) this.hooks.onStats?.(this._statsList());
+  }
+
+  _statsList() {
+    if (!this.game) return [];
+    const list = this.game.players.map((p) => ({
+      id: p.id,
+      name: p.name,
+      color: p.color,
+      ...(this.stats.get(p.id) || { wins: 0, losses: 0, elims: 0, placed: 0 }),
+    }));
+    list.sort((a, b) => b.wins - a.wins || a.losses - b.losses || a.name.localeCompare(b.name));
+    return list;
   }
 
   setInput(t) {

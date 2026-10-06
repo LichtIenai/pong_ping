@@ -108,6 +108,9 @@ export class NetSession {
       case 'events':
         this.hooks.onEvents?.(msg.list || []);
         break;
+      case 'stats':
+        this.hooks.onStats?.(msg.list || []);
+        break;
       case 'err':
         this.hooks.onError?.(msg.msg || 'Server error');
         break;

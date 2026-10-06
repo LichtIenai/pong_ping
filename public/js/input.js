@@ -85,7 +85,7 @@ export class InputController {
     let dir = 0;
     for (const d of this.keys) dir += d;
     if (dir === 0) return;
-    const usable = Math.max(1, ctx.side.len - ctx.paddleLen);
+    const usable = Math.max(1, ctx.side.len - ctx.paddleLen - 2 * (this.renderer.cornerInset || 0));
     let sign = 1;
     if (this.renderer.viewMode === 'own') {
       // In own-side view, ←/→ should track the screen, not the world winding order.

@@ -22,6 +22,7 @@ export class Room {
     this.stateAcc = 0;
     this.orderSeq = 0;
     this.colorSeq = 0;
+    this.stats = new Map();     // playerId -> { wins, losses, elims, placed }
     this.emptySince = 0;
     this.createdAt = Date.now();
   }
@@ -101,10 +102,12 @@ export class Room {
     if (m.graceTimer) clearTimeout(m.graceTimer);
     this.members.delete(id);
     this.inputs.delete(id);
+    this.stats.delete(id);
     if (this.game) this.game.removePlayer(id);
     if (this.hostId === id) this._migrateHost();
     this._checkRoundOver();
     this.broadcastLobby();
+    this.broadcastStats();
     if (this.members.size === 0) this.emptySince = Date.now();
   }
 
@@ -146,7 +149,34 @@ export class Room {
       roundNo: this.roundNo,
       players: this.publicPlayers(),
       arena: this.arenaPayload(),
+      stats: this.statsPayload(),
     };
+  }
+
+  _stat(id) {
+    let s = this.stats.get(id);
+    if (!s) {
+      s = { wins: 0, losses: 0, elims: 0, placed: 0 };
+      this.stats.set(id, s);
+    }
+    return s;
+  }
+
+  statsPayload() {
+    const list = [...this.members.values()]
+      .sort((a, b) => a.order - b.order)
+      .map((m) => ({
+        id: m.id,
+        name: m.name,
+        color: m.color,
+        ...(this.stats.get(m.id) || { wins: 0, losses: 0, elims: 0, placed: 0 }),
+      }));
+    list.sort((a, b) => b.wins - a.wins || a.losses - b.losses || a.name.localeCompare(b.name));
+    return list;
+  }
+
+  broadcastStats() {
+    this.broadcast({ t: 'stats', list: this.statsPayload() });
   }
 
   _snapshot() {
@@ -273,6 +303,7 @@ export class Room {
         member.name = cleanName(msg.name, member.name);
         if (p) p.name = member.name;
         this.broadcastLobby();
+        this.broadcastStats();
         if (this.game) this.broadcast({ t: 'arena', ...this.arenaPayload() });
         return;
       }
@@ -295,6 +326,23 @@ export class Room {
       const ev = this.game.drainEvents();
       if (ev.length) {
         this.broadcast({ t: 'events', list: ev });
+        let statsChanged = false;
+        for (const e of ev) {
+          if (e.t === 'goal') {
+            this._stat(e.id).losses++;
+            statsChanged = true;
+          } else if (e.t === 'elim') {
+            this._stat(e.id).elims++;
+            statsChanged = true;
+          } else if (e.t === 'over' && e.id) {
+            this._stat(e.id).wins++;
+            statsChanged = true;
+          } else if (e.t === 'place') {
+            this._stat(e.id).placed++;
+            statsChanged = true;
+          }
+        }
+        if (statsChanged) this.broadcastStats();
         if (ev.some((e) => e.t === 'shrink') && this.arenaPayload()) {
           this.broadcast({ t: 'arena', ...this.arenaPayload() });
         }

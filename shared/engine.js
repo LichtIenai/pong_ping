@@ -27,6 +27,33 @@ export function paddleLenFor(poly) {
   return clamp(poly.sides[0].len * WORLD.PADDLE_LEN_FRAC, WORLD.PADDLE_MIN, WORLD.PADDLE_MAX);
 }
 
+/**
+ * How far the paddle must stop short of each corner so that two adjacent
+ * paddles (both offset inward) can never cross at a shared vertex.
+ * The offset lines intersect off*tan(pi/n) from the corner; the tip must pass
+ * that point by r/cos(pi/n) for the capsules to clear each other.
+ */
+export function cornerInsetFor(n) {
+  const r = WORLD.PADDLE_THICK / 2;
+  const off = WORLD.PADDLE_OFFSET + r;
+  return off * Math.tan(Math.PI / n) + r / Math.cos(Math.PI / n) + 4;
+}
+
+/** The paddle's drawn/collided segment in world space (offset in front of the wall). */
+export function paddleSegment(poly, paddleLen, sideIdx, pc) {
+  const s = poly.sides[sideIdx];
+  const h = paddleLen / 2;
+  const off = WORLD.PADDLE_OFFSET + WORLD.PADDLE_THICK / 2;
+  const u0 = Math.max(0, pc - h);
+  const u1 = Math.min(s.len, pc + h);
+  return {
+    ax: s.p0.x + s.tx * u0 - s.nx * off,
+    ay: s.p0.y + s.ty * u0 - s.ny * off,
+    bx: s.p0.x + s.tx * u1 - s.nx * off,
+    by: s.p0.y + s.ty * u1 - s.ny * off,
+  };
+}
+
 /** Paddle speed scales with the usable edge so every arena slides in ~PADDLE_TRAVERSE seconds. */
 export function paddleSpeedFor(usableLen, speedFactor = 1) {
   const base = clamp(usableLen / WORLD.PADDLE_TRAVERSE, WORLD.PADDLE_SPEED_MIN, WORLD.PADDLE_SPEED_MAX);
@@ -120,6 +147,7 @@ export class Game {
     this.n = arenaSidesFor(count);
     this.poly = polygon(this.n, WORLD.R);
     this.paddleLen = paddleLenFor(this.poly);
+    this.cornerInset = cornerInsetFor(this.n);
     const slots = sideSlots(this.n, count);
 
     this.players = participants.map((p, idx) => {
@@ -243,7 +271,7 @@ export class Game {
         life: OBSTACLE.VORTEX_LIFE, lifeMax: OBSTACLE.VORTEX_LIFE,
       });
     }
-    this.events.push({ t: 'place', kind, id: p.id });
+    this.events.push({ t: 'place', kind, id: p.id, x: r1(check.x), y: r1(check.y) });
     return { ok: true };
   }
 
@@ -288,6 +316,7 @@ export class Game {
     this.n = n;
     this.poly = poly;
     this.paddleLen = paddleLenFor(poly);
+    this.cornerInset = cornerInsetFor(n);
     const slots = sideSlots(n, alive.length);
 
     this.ownerBySide = new Map();
@@ -298,11 +327,14 @@ export class Game {
       const sideIdx = slots[idx % slots.length];
       const newSide = poly.sides[sideIdx];
       const h = this.paddleLen / 2;
-      const usable = Math.max(1, newSide.len - this.paddleLen);
+      const inset = this.cornerInset;
+      const lo = h + inset;
+      const hi = Math.max(lo, newSide.len - h - inset);
+      const usable = Math.max(1, hi - lo);
       p.side = sideIdx;
-      p.pc = clamp(h + tNorm * usable, h, newSide.len - h);
+      p.pc = clamp(lo + tNorm * usable, lo, hi);
       p.pv = 0;
-      p.paddleSpeed = paddleSpeedFor(usable, p.speedFactor);
+      p.paddleSpeed = paddleSpeedFor(Math.max(1, newSide.len - this.paddleLen), p.speedFactor);
       this.ownerBySide.set(sideIdx, p);
     });
 
@@ -336,8 +368,8 @@ export class Game {
       if (!p.alive || p.removed) continue;
       const side = this.poly.sides[p.side];
       const h = this.paddleLen / 2;
-      const min = h;
-      const max = side.len - h;
+      const min = h + this.cornerInset;
+      const max = Math.max(min, side.len - h - this.cornerInset);
       let t;
       if (inputs) t = typeof inputs.get === 'function' ? inputs.get(p.id) : inputs[p.id];
       const prev = p.pc;
@@ -468,7 +500,7 @@ export class Game {
         ball.vx = (ball.vx / sp) * ball.speed;
         ball.vy = (ball.vy / sp) * ball.speed;
         o.hits = (o.hits || 0) + 1;
-        this.events.push({ t: 'bounce', o: 'line' });
+        this.events.push({ t: 'bounce', o: 'line', x: r1(ball.x), y: r1(ball.y) });
         if (o.hits >= OBSTACLE.LINE_HITS) o.dead = true;
       }
     }
@@ -476,7 +508,25 @@ export class Game {
 
   _sideCollisions() {
     const ball = this.ball;
-    // Find the side the ball is deepest into (handles corners sanely).
+
+    // 1) Paddles float in front of the wall, like classic Pong: the ball
+    //    bounces off the paddle's arena-side face before it can reach the goal line.
+    const face = -(WORLD.PADDLE_OFFSET + WORLD.PADDLE_THICK + WORLD.BALL_R);
+    for (const s of this.poly.sides) {
+      const owner = this.ownerBySide.get(s.i);
+      if (!owner || !owner.alive) continue;
+      const d = sideSD(s, ball.x, ball.y);
+      if (d <= face) continue;
+      const h = this.paddleLen / 2;
+      const u = sideU(s, ball.x, ball.y);
+      if (u < owner.pc - h - WORLD.BALL_R || u > owner.pc + h + WORLD.BALL_R) continue;
+      const vn = ball.vx * s.nx + ball.vy * s.ny;
+      if (vn <= 0) continue;
+      this._paddleBounce(s, owner, u);
+      return;
+    }
+
+    // 2) Goal lines: a ball that got past the paddle scores or bounces.
     let side = null;
     let sd = -Infinity;
     for (const s of this.poly.sides) {
@@ -489,15 +539,7 @@ export class Game {
     if (!side) return;
 
     const owner = this.ownerBySide.get(side.i);
-    const h = this.paddleLen / 2;
-    const u = sideU(side, ball.x, ball.y);
-    const covered = owner && owner.alive &&
-      u >= owner.pc - h - WORLD.BALL_R &&
-      u <= owner.pc + h + WORLD.BALL_R;
-
-    if (covered) {
-      this._paddleBounce(side, owner, u);
-    } else if (owner && owner.alive) {
+    if (owner && owner.alive) {
       this._goal(owner, side);
     } else {
       this._wallBounce(side, sd);
@@ -507,7 +549,7 @@ export class Game {
   _paddleBounce(side, owner, u) {
     const ball = this.ball;
     const sd = sideSD(side, ball.x, ball.y);
-    const push = -WORLD.BALL_R - sd;
+    const push = -(WORLD.PADDLE_OFFSET + WORLD.PADDLE_THICK + WORLD.BALL_R) - sd;
     ball.x += side.nx * push;
     ball.y += side.ny * push;
 
@@ -543,7 +585,7 @@ export class Game {
     const sp = Math.hypot(ball.vx, ball.vy) || 1;
     ball.vx = (ball.vx / sp) * ball.speed;
     ball.vy = (ball.vy / sp) * ball.speed;
-    this.events.push({ t: 'bounce', o: 'wall' });
+    this.events.push({ t: 'bounce', o: 'wall', x: r1(ball.x), y: r1(ball.y) });
   }
 
   _goal(owner, side) {

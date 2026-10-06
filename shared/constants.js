@@ -4,6 +4,7 @@ export const WORLD = {
   R: 480,                 // arena circumradius in world units
   BALL_R: 8,
   PADDLE_THICK: 14,
+  PADDLE_OFFSET: 26,      // distance from the wall to the paddle's face (classic Pong)
   PADDLE_LEN_FRAC: 0.34,  // paddle length as a fraction of the side length
   PADDLE_MIN: 80,
   PADDLE_MAX: 190,

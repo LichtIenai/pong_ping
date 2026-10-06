@@ -171,8 +171,8 @@ export function renderHud({ snap, arenaPlayers, you, label }) {
 
 let overlaySig = '';
 
-export function showOverlay(title, sub, actions = [], dim = true) {
-  const sig = `${title}\u0000${sub || ''}\u0000${actions.map((a) => a.label).join('|')}\u0000${dim}`;
+export function showOverlay(title, sub, actions = [], dim = true, extra = '') {
+  const sig = `${title}\u0000${sub || ''}\u0000${actions.map((a) => a.label).join('|')}\u0000${dim}\u0000${extra}`;
   const overlay = $('#overlay');
   // Rebuilding the DOM on every state tick would detach buttons mid-click.
   if (sig === overlaySig && !overlay.classList.contains('hidden')) return;
@@ -180,6 +180,7 @@ export function showOverlay(title, sub, actions = [], dim = true) {
 
   $('#ov-title').textContent = title;
   $('#ov-sub').textContent = sub || '';
+  $('#ov-extra').innerHTML = extra;
   const box = $('#ov-actions');
   box.innerHTML = '';
   for (const a of actions) {
@@ -196,4 +197,28 @@ export function showOverlay(title, sub, actions = [], dim = true) {
 export function hideOverlay() {
   overlaySig = '';
   $('#overlay').classList.add('hidden');
+}
+
+/** Compact standings table: wins / lives lost / eliminations / obstacles placed. */
+export function leaderboardHtml(stats, you, maxRows = 12) {
+  if (!stats || !stats.length) return '';
+  const rows = stats.slice(0, maxRows).map((s, i) => `
+    <tr class="${s.id === you ? 'me' : ''}">
+      <td class="rank">${i + 1}</td>
+      <td class="who"><span class="dot" style="background:${esc(s.color)}"></span>${esc(s.name)}</td>
+      <td class="num">${s.wins}</td>
+      <td class="num">${s.losses}</td>
+      <td class="num">${s.elims}</td>
+      <td class="num">${s.placed}</td>
+    </tr>`).join('');
+  return `<table class="leaderboard">
+    <thead><tr>
+      <th></th><th>Player</th>
+      <th title="Rounds won">W</th>
+      <th title="Lives lost">L</th>
+      <th title="Times eliminated">E</th>
+      <th title="Obstacles placed">OB</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
 }

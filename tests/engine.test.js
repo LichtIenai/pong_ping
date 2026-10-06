@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Game, checkPlacement, arenaSidesFor, sideSlots, paddleSpeedFor, advancePaddle } from '../shared/engine.js';
-import { sideU } from '../shared/geometry.js';
+import { Game, checkPlacement, arenaSidesFor, sideSlots, paddleSpeedFor, advancePaddle, paddleSegment } from '../shared/engine.js';
+import { sideU, segSegDist } from '../shared/geometry.js';
 import { WORLD, OBSTACLE } from '../shared/constants.js';
 
 const DT = 1 / 60;
@@ -56,15 +56,47 @@ test('arena sizing: 2 players use a square, everyone else a regular polygon', ()
   assert.deepEqual(sideSlots(3, 3), [0, 1, 2]);
 });
 
-test('perfect tracking concedes nothing and keeps the ball in bounds', () => {
+test('perfect tracking concedes nothing in reach and keeps the ball in bounds', () => {
   const game = makeGame(3, { lives: 99 });
   const events = run(game, 30, (g) => trackAll(g));
   const goals = events.filter((e) => e.t === 'goal');
-  assert.equal(goals.length, 0, `unexpected goals: ${JSON.stringify(goals)}`);
+  // With the corner inset, shots into the unreachable corner gap may score;
+  // anything inside the reachable range would be a tracking failure.
+  const defensible = goals.filter((e) => {
+    const side = game.poly.sides[e.side];
+    const u = sideU(side, e.x, e.y);
+    const inset = game.cornerInset;
+    return u > inset - WORLD.BALL_R && u < side.len - inset + WORLD.BALL_R;
+  });
+  assert.equal(defensible.length, 0, `defensible goals: ${JSON.stringify(defensible)}`);
   for (let i = 0; i < game.poly.sides.length; i++) {
     const sd = (game.ball.x * game.poly.sides[i].nx) + (game.ball.y * game.poly.sides[i].ny)
       - (game.poly.sides[i].p0.x * game.poly.sides[i].nx + game.poly.sides[i].p0.y * game.poly.sides[i].ny);
     assert.ok(sd < WORLD.BALL_R + 2, 'ball stays inside the arena');
+  }
+});
+
+test('adjacent paddles never intersect at shared corners', () => {
+  for (const count of [3, 4, 5, 6, 10, 20]) {
+    const game = makeGame(count, { lives: 3 });
+    const h = game.paddleLen / 2;
+    for (const p of game.players) {
+      const side = game.poly.sides[p.side];
+      const next = game.players.find((q) => {
+        const s2 = game.poly.sides[q.side];
+        return Math.hypot(s2.p0.x - side.p1.x, s2.p0.y - side.p1.y) < 1;
+      });
+      if (!next) continue;
+      p.pc = Math.max(h + game.cornerInset, side.len - h - game.cornerInset);
+      next.pc = h + game.cornerInset;
+      const sa = paddleSegment(game.poly, game.paddleLen, p.side, p.pc);
+      const sb = paddleSegment(game.poly, game.paddleLen, next.side, next.pc);
+      const d = segSegDist(sa.ax, sa.ay, sa.bx, sa.by, sb.ax, sb.ay, sb.bx, sb.by);
+      assert.ok(
+        d >= WORLD.PADDLE_THICK - 0.01,
+        `${count}-gon corner clearance too small: ${d.toFixed(1)}`,
+      );
+    }
   }
 });
 
@@ -78,8 +110,8 @@ test('covered center bounces; an uncovered spot on the same side concedes', () =
     const p = { x: side.p0.x + side.tx * u, y: side.p0.y + side.ty * u };
     game.phase = 'play';
     game.serveTimer = 0;
-    game.ball.x = p.x - side.nx * 40;
-    game.ball.y = p.y - side.ny * 40;
+    game.ball.x = p.x - side.nx * 60;
+    game.ball.y = p.y - side.ny * 60;
     game.ball.vx = side.nx * 300;
     game.ball.vy = side.ny * 300;
     game.ball.speed = 300;
@@ -110,6 +142,40 @@ test('covered center bounces; an uncovered spot on the same side concedes', () =
   assert.equal(idle.lives, 0);
   assert.equal(idle.alive, false);
   assert.equal(idle.charges, 2, 'elimination grants two obstacle charges');
+});
+
+test('paddles float in front of the goal line', () => {
+  const game = makeGame(4, { lives: 1 });
+  const p = game.players[0];
+  const side = game.poly.sides[p.side];
+  const u = p.pc;
+  const px = side.p0.x + side.tx * u;
+  const py = side.p0.y + side.ty * u;
+
+  game.phase = 'play';
+  game.serveTimer = 0;
+  game.ball.x = px - side.nx * 120;
+  game.ball.y = py - side.ny * 120;
+  game.ball.vx = side.nx * 400;
+  game.ball.vy = side.ny * 400;
+  game.ball.speed = 400;
+
+  let hitSd = null;
+  for (let i = 0; i < 120; i++) {
+    game.tick(DT, null);
+    const ev = game.drainEvents();
+    if (ev.some((e) => e.t === 'hit' && e.id === p.id)) {
+      hitSd = (game.ball.x - side.p0.x) * side.nx + (game.ball.y - side.p0.y) * side.ny;
+      break;
+    }
+    if (ev.some((e) => e.t === 'goal')) break;
+  }
+  assert.ok(hitSd !== null, 'ball bounced off the paddle');
+  const expected = -(WORLD.PADDLE_OFFSET + WORLD.PADDLE_THICK + WORLD.BALL_R);
+  assert.ok(
+    hitSd <= expected + 1 && hitSd >= expected - 12,
+    `bounce happens at the paddle's front face (sd=${hitSd.toFixed(1)}, expected ~${expected})`,
+  );
 });
 
 test('speed ramp builds while nobody concedes and resets on a goal', () => {

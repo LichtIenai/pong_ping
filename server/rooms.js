@@ -48,6 +48,7 @@ export class RoomManager {
     }
     client.send({ t: 'joined', ...room.welcomePayload(res.member.id) });
     room.broadcastLobby();
+    room.broadcastStats();
   }
 
   join(client, msg) {
@@ -63,6 +64,7 @@ export class RoomManager {
       room.sendStateTo(client);
     }
     room.broadcastLobby();
+    room.broadcastStats();
   }
 
   disconnect(client) {

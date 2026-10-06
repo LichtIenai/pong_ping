@@ -19,6 +19,7 @@ const state = {
   arena: null,       // { n, r, players }
   snap: null,        // last snapshot
   settings: { ...DEFAULT_SETTINGS },
+  stats: [],         // leaderboard rows
   viewMode: 'own',
   predictedPc: null,
   paused: false,
@@ -213,6 +214,18 @@ function nameOf(id) {
   return l ? l.name : 'Someone';
 }
 
+function renderStandings() {
+  const el = ui.$('#lobby-standings');
+  if (el) el.innerHTML = ui.leaderboardHtml(state.stats, state.you);
+}
+
+function colorOf(id) {
+  const a = state.arena?.players.find((p) => p.id === id);
+  if (a) return a.color;
+  const l = state.lobby?.players.find((p) => p.id === id);
+  return (l && l.color) || '#9ad6ff';
+}
+
 function enterGame() {
   ui.hideOverlay();
   ui.showScreen('screen-game');
@@ -230,6 +243,7 @@ function quitGame() {
   state.lobby = null;
   state.arena = null;
   state.snap = null;
+  state.stats = [];
   state.paused = false;
   state.placing = null;
   state.predictedPc = null;
@@ -269,6 +283,11 @@ function startPve() {
       onArena: (arena) => setArena(arena),
       onState: (snap) => onState(snap),
       onEvents: (list) => onEvents(list),
+      onStats: (list) => {
+        state.stats = list;
+        renderStandings();
+        updateOverlay();
+      },
     },
   });
   enterGame();
@@ -287,6 +306,7 @@ function netHooks() {
       state.lobby = msg;
       state.settings = msg.settings;
       state.roundNo = msg.roundNo || 0;
+      state.stats = msg.stats || [];
       localStorage.setItem(`pp:token:${msg.code}`, msg.token);
       if (msg.arena) setArena(msg.arena);
       renderLobby();
@@ -309,6 +329,11 @@ function netHooks() {
     onArena: (msg) => setArena(msg),
     onState: (snap) => onState(snap),
     onEvents: (list) => onEvents(list),
+    onStats: (list) => {
+      state.stats = list;
+      renderStandings();
+      updateOverlay();
+    },
     onError: (msg) => ui.toast(msg, true),
   };
 }
@@ -399,6 +424,7 @@ function renderLobby() {
   ui.$('#lobby-hint').textContent = isHost
     ? (connected < 2 ? 'At least 2 players are needed.' : 'You are the host.')
     : 'The host controls the settings.';
+  renderStandings();
 }
 
 // ------------------------------------------------------------------ game HUD
@@ -429,7 +455,7 @@ function updatePrediction(dt) {
     state.predictedPc = null;
     return;
   }
-  predictor.configure(side.len, renderer.paddleLen);
+  predictor.configure(side.len, renderer.paddleLen, renderer.cornerInset);
   predictor.setTarget(input.target);
   predictor.step(dt);
   renderer.selfPc = predictor.pc;
@@ -437,6 +463,7 @@ function updatePrediction(dt) {
 }
 
 function updateHud() {
+  renderer.setMaxLives(state.settings?.lives ?? 3);
   ui.renderHud({
     snap: state.snap,
     arenaPlayers: state.arena ? state.arena.players : [],
@@ -526,6 +553,7 @@ function updateOverlay() {
       auto ? `Next round in ${cd}s` : 'Waiting for the host…',
       [],
       true,
+      ui.leaderboardHtml(state.stats, state.you),
     );
     return;
   }
@@ -538,10 +566,12 @@ function onEvents(list) {
     switch (e.t) {
       case 'goal':
         ui.feed(`${nameOf(e.id)} lost a life — ${e.lives} left`, e.lives <= 1 ? 'warn' : '');
+        if (e.x !== undefined) renderer.goalImpact(e.x, e.y, colorOf(e.id), e.side ?? null);
         sfx.goal();
         break;
       case 'elim':
         ui.feed(`${nameOf(e.id)} is out!`, 'warn');
+        renderer.ring(0, 0, colorOf(e.id), { r1: 300, life: 0.6, width: 3 });
         sfx.out();
         break;
       case 'over':
@@ -550,6 +580,7 @@ function onEvents(list) {
         break;
       case 'place':
         ui.feed(`${nameOf(e.id)} placed a ${e.kind === 'line' ? 'barrier' : 'vortex'}`, 'place');
+        if (e.x !== undefined) renderer.placeBurst(e.x, e.y, colorOf(e.id));
         break;
       case 'shrink':
         ui.feed(
@@ -562,12 +593,15 @@ function onEvents(list) {
         ui.feed(`${e.count} obstacle${e.count > 1 ? 's' : ''} washed away`, 'warn');
         break;
       case 'vortex':
+        if (e.x !== undefined) renderer.vortexBurst(e.x, e.y, colorOf(e.id));
         sfx.vortex();
         break;
       case 'hit':
+        if (e.x !== undefined) renderer.impact(e.x, e.y, colorOf(e.id), 0.8);
         sfx.hit();
         break;
       case 'bounce':
+        if (e.x !== undefined) renderer.wallHit(e.x, e.y);
         sfx.wall();
         break;
       default:

@@ -131,6 +131,38 @@ test('room rebroadcasts the arena when it morphs', () => {
   );
 });
 
+test('room tracks a leaderboard and broadcasts it', () => {
+  const { room, clients, members } = makeRoom(3);
+  room.startRound();
+  const [a, b, c] = members;
+  const pa = room.game.byId.get(a.id);
+  const pb = room.game.byId.get(b.id);
+
+  pa.lives = 1;
+  room.game._goal(pa, room.game.poly.sides[pa.side]);
+  room.tick(1 / 60);
+  assert.equal(room.stats.get(a.id).losses, 1, 'a conceded a life');
+  assert.equal(room.stats.get(a.id).elims, 1, 'a was eliminated');
+
+  room.handle(clients[0], { t: 'place', kind: 'vortex', x: 0, y: 0 });
+  room.tick(1 / 60);
+  assert.equal(room.stats.get(a.id).placed, 1, 'obstacle placement counted');
+
+  pb.lives = 1;
+  room.game._goal(pb, room.game.poly.sides[pb.side]);
+  room.tick(1 / 60);
+  assert.equal(room.stats.get(c.id).wins, 1, 'c won the round');
+
+  const statsMsgs = received(clients[0]).filter((m) => m.t === 'stats');
+  assert.ok(statsMsgs.length > 0, 'stats broadcast');
+  const last = statsMsgs[statsMsgs.length - 1].list;
+  assert.equal(last[0].id, c.id, 'the winner leads the leaderboard');
+  assert.equal(last.find((s) => s.id === a.id).placed, 1);
+
+  const welcome = room.welcomePayload(a.id);
+  assert.equal(welcome.stats.length, 3, 'joiners receive the standings');
+});
+
 test('room: settings are clamped and half-time changes are locked', () => {
   const { room, clients } = makeRoom(2);
   room.handle(clients[0], {

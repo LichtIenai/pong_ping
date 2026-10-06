@@ -47,6 +47,7 @@ export const sfx = {
   },
   goal() {
     tone(210, 0.3, { type: 'sawtooth', gain: 0.045, slide: -110 });
+    tone(70, 0.42, { type: 'sine', gain: 0.07, slide: -25, delay: 0.02 });
   },
   out() {
     tone(140, 0.5, { type: 'sawtooth', gain: 0.05, slide: -80 });
