@@ -6,6 +6,7 @@ import { InputController } from './input.js';
 import { PveSession } from './pve.js';
 import { NetSession } from './net.js';
 import { PaddlePredictor } from './predict.js';
+import { AutoPlayer } from './autoplay.js';
 import { sfx } from './sfx.js';
 import * as ui from './ui.js';
 
@@ -102,6 +103,62 @@ input.onEscape = () => {
   if (state.mode === 'pve' && state.session) togglePause();
 };
 
+// ----------------------------------------------------------------- autoplay
+
+const autoBtn = ui.$('#btn-auto');
+const autoMenuBtn = ui.$('#btn-auto-pve');
+let autoAvailable = false;
+let autoOn = false;
+
+const autoPlayer = new AutoPlayer({
+  getSnapshot: () => state.snap,
+  getView: () => {
+    if (!state.snap || !renderer.poly) return null;
+    const me = state.snap.players.find((p) => p.id === state.you);
+    if (!me || me.al !== 1 || me.side === null || me.side === undefined) return null;
+    const side = renderer.poly.sides[me.side];
+    if (!side) return null;
+    return {
+      poly: renderer.poly,
+      sideIdx: me.side,
+      side,
+      paddleLen: renderer.paddleLen,
+      cornerInset: renderer.cornerInset,
+    };
+  },
+  onTarget: (t) => input.setTarget(t),
+});
+
+function setAutoPlay(on, announce = true) {
+  autoOn = autoAvailable && !!on;
+  autoPlayer.setActive(autoOn);
+  state.session?.setAutoplay?.(autoOn);
+  autoBtn.classList.toggle('on', autoOn);
+  autoBtn.setAttribute('aria-pressed', autoOn ? 'true' : 'false');
+  autoBtn.textContent = `Auto Play: ${autoOn ? 'On' : 'Off'}`;
+  if (announce) ui.toast(autoOn ? 'Auto Play on' : 'Auto Play off');
+}
+
+autoBtn.addEventListener('click', () => setAutoPlay(!autoOn));
+input.onManual = () => {
+  if (autoOn) setAutoPlay(false);
+};
+
+function enableAutoPlayUi() {
+  autoAvailable = true;
+  autoBtn.classList.remove('hidden');
+  autoMenuBtn.classList.remove('hidden');
+}
+
+{
+  const runParam = new URLSearchParams(location.search).get('run');
+  if (runParam !== null && !/^(0|false|off|no)$/i.test(runParam)) enableAutoPlayUi();
+  fetch('/config.json', { cache: 'no-store' })
+    .then((res) => (res.ok ? res.json() : null))
+    .then((cfg) => { if (cfg && cfg.run) enableAutoPlayUi(); })
+    .catch(() => { /* config endpoint unavailable: keep hidden */ });
+}
+
 // -------------------------------------------------------------------- screens
 
 const pveForm = ui.buildSettings(ui.$('#pve-settings'), { showBots: true });
@@ -117,6 +174,10 @@ const lobbyForm = ui.buildSettings(ui.$('#lobby-settings'), {
 });
 
 ui.$('#btn-pve').addEventListener('click', () => ui.showScreen('screen-pve'));
+ui.$('#btn-auto-pve').addEventListener('click', () => {
+  setAutoPlay(true, false);
+  startPve();
+});
 ui.$$('[data-back]').forEach((b) => b.addEventListener('click', () => ui.showScreen('screen-menu')));
 
 ui.$('#btn-pve-start').addEventListener('click', startPve);
@@ -229,12 +290,14 @@ function colorOf(id) {
 function enterGame() {
   ui.hideOverlay();
   ui.showScreen('screen-game');
+  state.session?.setAutoplay?.(autoOn);
   renderer.delay = state.mode === 'pve' ? 0.016 : 0.07;
   requestAnimationFrame(() => renderer.resize());
   updateHud();
 }
 
 function quitGame() {
+  setAutoPlay(false, false);
   try { state.session?.leave(); } catch { /* ignore */ }
   state.session = null;
   state.mode = null;
@@ -636,6 +699,7 @@ function loop(t) {
   const now = t / 1000;
   const dt = Math.min(0.05, Math.max(0, now - lastT));
   lastT = now;
+  if (state.session && !state.paused) autoPlayer.update();
   if (state.session && state.mode === 'pve' && !state.paused) {
     state.session.update(dt);
   } else {

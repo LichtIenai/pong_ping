@@ -658,7 +658,10 @@ export class Game {
       cd: this.phase === 'serve' ? Math.round(Math.max(0, this.serveTimer) * 10) / 10 : 0,
       mult: r2(this.mult),
       winner: this.winnerId,
-      ball: { x: r1(this.ball.x), y: r1(this.ball.y), s: r1(this.ball.speed) },
+      ball: {
+        x: r1(this.ball.x), y: r1(this.ball.y),
+        vx: r1(this.ball.vx), vy: r1(this.ball.vy), s: r1(this.ball.speed),
+      },
       players: this.players.map((p) => ({
         id: p.id,
         side: p.side,

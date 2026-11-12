@@ -89,6 +89,7 @@ input[type="range"] { padding: 0; accent-color: var(--accent-2); }
 input:disabled, select:disabled { opacity: 0.45; }
 
 .menu-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+.menu-buttons .wide { grid-column: 1 / -1; }
 .join-row { display: flex; gap: 8px; }
 .join-row input { text-transform: uppercase; letter-spacing: 0.25em; font-family: ui-monospace, monospace; }
 
@@ -201,7 +202,7 @@ input:disabled, select:disabled { opacity: 0.45; }
 #hud { position: absolute; inset: 0; pointer-events: none; }
 #hud button { pointer-events: auto; }
 
-.hud-top { display: flex; align-items: center; gap: 8px; padding: 12px; }
+.hud-top { display: flex; align-items: center; gap: 8px; padding: 12px; flex-wrap: wrap; }
 .hud-top .spacer { flex: 1; }
 .chip {
   background: rgba(9, 15, 28, 0.78);
@@ -214,6 +215,11 @@ input:disabled, select:disabled { opacity: 0.45; }
 }
 button.chip { cursor: pointer; }
 button.chip:hover { border-color: #2f4570; }
+button.chip.on {
+  color: var(--good);
+  border-color: rgba(61, 220, 151, 0.65);
+  box-shadow: 0 0 0 2px rgba(61, 220, 151, 0.18);
+}
 .chip.mono { letter-spacing: 0.05em; }
 
 .hud-list {

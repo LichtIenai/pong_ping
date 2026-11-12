@@ -1,6 +1,6 @@
 // Local PvE session: identical engine, bots instead of remote players.
 
-import { Game } from '/shared/engine.js';
+import { Game, checkPlacement } from '/shared/engine.js';
 import { BotController, chooseBotPlacement, skillFor } from '/shared/ai.js';
 import { BOT_NAMES, COLORS, WORLD } from '/shared/constants.js';
 
@@ -18,6 +18,7 @@ export class PveSession {
     this.roundNo = 0;
     this.pendingPlacements = [];
     this.stats = new Map();
+    this.autoplay = false;
     this._newRound();
   }
 
@@ -141,6 +142,10 @@ export class PveSession {
     this.setInput(t);
   }
 
+  setAutoplay(on) {
+    this.autoplay = !!on;
+  }
+
   canPlace(kind, params) {
     if (!this.game) return { ok: false, reason: 'No game' };
     return this.game.canPlace('you', kind, params);
@@ -169,9 +174,10 @@ export class PveSession {
     if (!g || !this.settings.obstacles) return;
 
     for (const p of g.players) {
-      if (!p.isBot || p.alive || p.removed || p.charges <= 0) continue;
+      const automated = p.isBot || (this.autoplay && p.id === 'you');
+      if (!automated || p.alive || p.removed || p.charges <= 0) continue;
       if (!this.pendingPlacements.some((q) => q.id === p.id)) {
-        const s = skillFor(p.botSkill || this.skill);
+        const s = skillFor(p.isBot ? (p.botSkill || this.skill) : 'hard');
         const delay = s.placeDelay[0] + Math.random() * (s.placeDelay[1] - s.placeDelay[0]);
         this.pendingPlacements.push({ id: p.id, at: g.time + delay, attempts: 0 });
       }
@@ -179,12 +185,25 @@ export class PveSession {
 
     for (const q of [...this.pendingPlacements]) {
       if (g.time < q.at) continue;
+      if (q.id === 'you') {
+        if (!this.autoplay) {
+          this._dropPending(q);
+          continue;
+        }
+        // Wait for a live rally: dropping a vortex on the serve spot would
+        // consume it immediately, and placements are most useful in motion.
+        if (g.phase !== 'play') {
+          q.at = g.time + 0.4;
+          continue;
+        }
+      }
       const p = g.byId.get(q.id);
       if (!p || p.alive || p.removed || p.charges <= 0) {
         this._dropPending(q);
         continue;
       }
-      const choice = chooseBotPlacement(g, p.botSkill || this.skill);
+      const skill = p.isBot ? (p.botSkill || this.skill) : 'hard';
+      const choice = p.isBot ? chooseBotPlacement(g, skill) : this._autoPlacement(g);
       if (!choice) {
         q.attempts++;
         q.at = g.time + 1.2;
@@ -199,6 +218,24 @@ export class PveSession {
         if (q.attempts > 8) this._dropPending(q);
       }
     }
+  }
+
+  /** Human autoplay fallback: if the ball-path spot is unusable, drop near center. */
+  _autoPlacement(g) {
+    const choice = chooseBotPlacement(g, 'hard');
+    if (choice) return choice;
+    for (let i = 0; i < 24; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const r = Math.random() * WORLD.R * 0.2;
+      const x = Math.cos(a) * r;
+      const y = Math.sin(a) * r;
+      const kind = i % 2 ? 'line' : 'vortex';
+      const params = kind === 'line'
+        ? { x, y, angle: Math.random() * Math.PI }
+        : { x, y };
+      if (checkPlacement(g.poly, g.obstacles, kind, params).ok) return { kind, params };
+    }
+    return null;
   }
 
   _dropPending(q) {

@@ -18,12 +18,30 @@ Two ways to play:
 ```bash
 npm install
 npm start          # http://localhost:3000
+npm start -- --run # same, with the Auto Play button enabled
 npm run dev        # auto-restarts on file changes
 npm test           # node:test units for geometry, engine, rooms
 ```
 
 No build step: plain ES modules shared between the Node server and the browser
 (`shared/` is served at `/shared/`).
+
+### Auto Play
+
+Start the server with the `run` flag (or set `RUN=1`) to enable client-side
+autoplay:
+
+```bash
+npm start -- --run
+# or
+RUN=1 npm start
+# or append ?run=1 to any URL
+```
+
+This reveals **Auto Play** controls in the menu and HUD. The menu button starts
+a PvE match with autopilot on; the HUD toggle hands the local paddle to the AI
+(and makes eliminated PvE players place their obstacle charges automatically).
+The flag only exposes the optional button — without it the game is unchanged.
 
 ## How to play
 
@@ -104,8 +122,8 @@ shared/engine.js       the authoritative simulation (ball, paddles, lives, ramp,
                        obstacles, placements, snapshots, events)
 shared/ai.js           bot paddles (reaction, error, prediction) + bot placement
 shared/protocol.js     name/settings sanitising
-public/                Canvas 2D client: renderer, input, net, prediction, PvE, HUD, sfx
-tests/                 node:test suites (geometry, engine, room behaviour)
+public/                Canvas 2D client: renderer, input, net, prediction, PvE, HUD, sfx, autoplay
+tests/                 node:test suites (geometry, AI, engine, rooms)
 ```
 
 Netcode: the server simulates at 60 Hz and broadcasts compact snapshots at

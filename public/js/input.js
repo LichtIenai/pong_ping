@@ -30,6 +30,7 @@ export class InputController {
     this.confirm = () => {};
     this.onPlacementChange = () => {};
     this.onEscape = null;
+    this.onManual = null;
 
     window.addEventListener('keydown', (e) => this._key(e, true));
     window.addEventListener('keyup', (e) => this._key(e, false));
@@ -73,9 +74,22 @@ export class InputController {
     }
     const dir = KEY_DIRS[e.key];
     if (dir === undefined) return;
-    if (down) this.keys.add(dir);
-    else this.keys.delete(dir);
+    if (down) {
+      this.keys.add(dir);
+      this.onManual?.();
+    } else {
+      this.keys.delete(dir);
+    }
     e.preventDefault();
+  }
+
+  /** Move the local target without a pointer/keyboard gesture (autoplay). */
+  setTarget(t) {
+    if (this.placement) return;
+    const v = Number(t);
+    if (!Number.isFinite(v)) return;
+    this.target = clamp(v, 0, 1);
+    this._emit(false);
   }
 
   update(dt) {
@@ -127,6 +141,7 @@ export class InputController {
       return;
     }
     this.dragging = true;
+    this.onManual?.();
     this._aim(world);
     e.preventDefault();
   }

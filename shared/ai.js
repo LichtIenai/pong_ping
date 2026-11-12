@@ -11,23 +11,25 @@ export function skillFor(name) {
 }
 
 /**
- * Forward-simulate the ball (walls bounce, paddles ignored) and return the
+ * Forward-simulate a ball (walls bounce, paddles ignored) and return the
  * coordinate along `sideIdx` where it would arrive, or null within the horizon.
  */
-export function predictHitU(game, sideIdx, horizon = 4) {
-  const side = game.poly.sides[sideIdx];
-  const b = game.ball;
-  let x = b.x;
-  let y = b.y;
-  let vx = b.vx;
-  let vy = b.vy;
-  const speed = Math.hypot(vx, vy) || b.speed || 1;
+export function predictHitUForBall(poly, sideIdx, ball, horizon = 4) {
+  const side = poly.sides[sideIdx];
+  let x = Number(ball.x);
+  let y = Number(ball.y);
+  let vx = Number(ball.vx);
+  let vy = Number(ball.vy);
+  const speed = Math.hypot(vx, vy) || Number(ball.speed) || 1;
+  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(vx) || !Number.isFinite(vy)) {
+    return null;
+  }
   const dt = 1 / 60;
   for (let t = 0; t < horizon; t += dt) {
     x += vx * dt;
     y += vy * dt;
     if (sideSD(side, x, y) > -WORLD.BALL_R) return sideU(side, x, y);
-    for (const s of game.poly.sides) {
+    for (const s of poly.sides) {
       if (s.i === sideIdx) continue;
       const d = sideSD(s, x, y);
       if (d > -WORLD.BALL_R) {
@@ -47,6 +49,21 @@ export function predictHitU(game, sideIdx, horizon = 4) {
     }
   }
   return null;
+}
+
+export function predictHitU(game, sideIdx, horizon = 4) {
+  return predictHitUForBall(game.poly, sideIdx, game.ball, horizon);
+}
+
+/** Normalized [0,1] paddle target that intercepts the ball on `sideIdx`. */
+export function interceptTarget(poly, sideIdx, ball, paddleLen, cornerInset = 0, horizon = 4) {
+  const u = predictHitUForBall(poly, sideIdx, ball, horizon);
+  if (u === null || u === undefined) return null;
+  const side = poly.sides[sideIdx];
+  const h = paddleLen / 2;
+  const min = h + cornerInset;
+  const usable = Math.max(1, side.len - paddleLen - cornerInset * 2);
+  return clamp((u - min) / usable, 0, 1);
 }
 
 export class BotController {

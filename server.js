@@ -14,6 +14,19 @@ const SHARED_DIR = join(ROOT, 'shared');
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
 
+/** Parse a boolean CLI flag: `--run`, `--run=1`, `--run=off`, etc. */
+function cliFlag(name) {
+  const arg = process.argv.slice(2).find(
+    (a) => a === `--${name}` || a.startsWith(`--${name}=`),
+  );
+  if (!arg) return false;
+  const value = arg.includes('=') ? arg.split('=').slice(1).join('=') : 'true';
+  return !/^(0|false|off|no)$/i.test(value);
+}
+
+// `--run` / `RUN=1` reveals the client-side Auto Play toggle; `?run=1` also works.
+const RUN_ENABLED = cliFlag('run') || /^(1|true|yes|on)$/i.test(process.env.RUN || '');
+
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -52,6 +65,14 @@ const server = http.createServer(async (req, res) => {
     if (req.url === '/health') {
       res.writeHead(200, { 'content-type': 'text/plain' });
       res.end('ok');
+      return;
+    }
+    if (req.url?.split('?')[0] === '/config.json') {
+      res.writeHead(200, {
+        'content-type': 'application/json; charset=utf-8',
+        'cache-control': 'no-store',
+      });
+      res.end(JSON.stringify({ run: RUN_ENABLED }));
       return;
     }
     const file = resolveStatic(req.url || '/');
