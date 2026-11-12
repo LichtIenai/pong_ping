@@ -424,7 +424,12 @@ export class Game {
       ball.vx = (ball.vx / sp) * ball.speed;
       ball.vy = (ball.vy / sp) * ball.speed;
     }
-    const steps = Math.max(1, Math.ceil((ball.speed * dt) / (WORLD.BALL_R * 0.9)));
+    // Keep substeps short so fast, grazing shots cannot tunnel through the
+    // rounded ends of a paddle between two collision checks.
+    const steps = Math.max(
+      1,
+      Math.ceil((ball.speed * dt) / (WORLD.BALL_R * 0.5)),
+    );
     const h = dt / steps;
     for (let s = 0; s < steps && this.phase === 'play'; s++) {
       this._vortexForces(h);
@@ -508,25 +513,64 @@ export class Game {
 
   _sideCollisions() {
     const ball = this.ball;
+    const paddleRadius = WORLD.PADDLE_THICK / 2;
+    const paddleHitDist = WORLD.BALL_R + paddleRadius;
+    const paddleCenterOffset = WORLD.PADDLE_OFFSET + paddleRadius;
 
-    // 1) Paddles float in front of the wall, like classic Pong: the ball
-    //    bounces off the paddle's arena-side face before it can reach the goal line.
-    const face = -(WORLD.PADDLE_OFFSET + WORLD.PADDLE_THICK + WORLD.BALL_R);
-    for (const s of this.poly.sides) {
-      const owner = this.ownerBySide.get(s.i);
-      if (!owner || !owner.alive) continue;
-      const d = sideSD(s, ball.x, ball.y);
-      if (d <= face) continue;
-      const h = this.paddleLen / 2;
-      const u = sideU(s, ball.x, ball.y);
-      if (u < owner.pc - h - WORLD.BALL_R || u > owner.pc + h + WORLD.BALL_R) continue;
-      const vn = ball.vx * s.nx + ball.vy * s.ny;
-      if (vn <= 0) continue;
-      this._paddleBounce(s, owner, u);
+    // 1) A ball behind a paddle has already beaten it. In a sharp polygon the
+    //    back gap can lead into an adjacent wall, which would otherwise charge
+    //    the life to the wrong player (e.g. a bottom-side miss becoming a
+    //    side-player goal in a triangle). Award it to the paddle's owner.
+    const behindReach = this.paddleLen / 2 + paddleHitDist;
+    for (const p of this.players) {
+      if (!p.alive || p.removed) continue;
+      const side = this.poly.sides[p.side];
+      if (!side) continue;
+      if (sideSD(side, ball.x, ball.y) <= -paddleCenterOffset) continue;
+      const u = sideU(side, ball.x, ball.y);
+      if (u >= p.pc - behindReach && u <= p.pc + behindReach) {
+        this._goal(p, side);
+        return;
+      }
+    }
+
+    // 2) Paddles are solid rounded capsules floating in front of the wall.
+    //    Check the whole capsule (not just a wall-band rectangle) so the
+    //    rendered round ends match the physics: balls can no longer clip
+    //    through the corners of a paddle.
+    for (const p of this.players) {
+      if (!p.alive || p.removed) continue;
+      const side = this.poly.sides[p.side];
+      if (!side) continue;
+      // A ball that is already behind the paddle's center line has beaten the
+      // paddle; it was handled above.
+      if (sideSD(side, ball.x, ball.y) > -paddleCenterOffset) continue;
+      const seg = paddleSegment(this.poly, this.paddleLen, p.side, p.pc);
+      const c = segClosest(seg.ax, seg.ay, seg.bx, seg.by, ball.x, ball.y);
+      if (c.dist >= paddleHitDist) continue;
+
+      // Contact normal points from the paddle toward the ball. A dead-center
+      // hit falls back to the arena-facing normal.
+      let nx = -side.nx;
+      let ny = -side.ny;
+      if (c.dist > 1e-6) {
+        nx = (ball.x - c.x) / c.dist;
+        ny = (ball.y - c.y) / c.dist;
+      }
+
+      const vn = ball.vx * nx + ball.vy * ny;
+      if (vn >= 0) {
+        // Already leaving the paddle: just separate it from the cap so it
+        // cannot rest (or be drawn) inside the rounded end.
+        ball.x = c.x + nx * (paddleHitDist + 0.01);
+        ball.y = c.y + ny * (paddleHitDist + 0.01);
+        continue;
+      }
+      this._paddleBounce(side, p, c, nx, ny);
       return;
     }
 
-    // 2) Goal lines: a ball that got past the paddle scores or bounces.
+    // 3) Goal lines: a ball that got past the paddle scores or bounces.
     let side = null;
     let sd = -Infinity;
     for (const s of this.poly.sides) {
@@ -546,21 +590,24 @@ export class Game {
     }
   }
 
-  _paddleBounce(side, owner, u) {
+  _paddleBounce(side, owner, contact, nx, ny) {
     const ball = this.ball;
-    const sd = sideSD(side, ball.x, ball.y);
-    const push = -(WORLD.PADDLE_OFFSET + WORLD.PADDLE_THICK + WORLD.BALL_R) - sd;
-    ball.x += side.nx * push;
-    ball.y += side.ny * push;
+    const paddleHitDist = WORLD.BALL_R + WORLD.PADDLE_THICK / 2;
+    ball.x = contact.x + nx * (paddleHitDist + 0.5);
+    ball.y = contact.y + ny * (paddleHitDist + 0.5);
 
-    const vn = ball.vx * side.nx + ball.vy * side.ny;
-    if (vn > 0) {
-      ball.vx -= 2 * vn * side.nx;
-      ball.vy -= 2 * vn * side.ny;
+    const vn = ball.vx * nx + ball.vy * ny;
+    if (vn < 0) {
+      ball.vx -= 2 * vn * nx;
+      ball.vy -= 2 * vn * ny;
     }
 
     const h = this.paddleLen / 2;
+    const u = sideU(side, contact.x, contact.y);
     const off = clamp((u - owner.pc) / h, -1, 1);
+    // The reflection uses the actual contact normal, but the English (and the
+    // angle limit) stay relative to the arena-facing direction so a corner hit
+    // can never be flung sideways or back toward the goal line.
     const inward = Math.atan2(-side.ny, -side.nx);
     let rel = wrapPi(Math.atan2(ball.vy, ball.vx) - inward);
     rel += off * WORLD.PADDLE_SPIN;

@@ -178,6 +178,90 @@ test('paddles float in front of the goal line', () => {
   );
 });
 
+test('paddle end caps are solid: corner hits bounce instead of clipping through', () => {
+  const aimAtEnd = (game, beyond) => {
+    const p = game.players[0];
+    const side = game.poly.sides[p.side];
+    const h = game.paddleLen / 2;
+    const u = p.pc + h + beyond;
+    const point = {
+      x: side.p0.x + side.tx * u,
+      y: side.p0.y + side.ty * u,
+    };
+    game.phase = 'play';
+    game.serveTimer = 0;
+    game.ball.x = point.x - side.nx * 90;
+    game.ball.y = point.y - side.ny * 90;
+    game.ball.vx = side.nx * 430;
+    game.ball.vy = side.ny * 430;
+    game.ball.speed = 430;
+    return { p, side };
+  };
+
+  // The rendered paddle is a capsule with a rounded end. A ball aimed just
+  // past the end should still rebound; only a clear miss should score.
+  const hitGame = makeGame(4, { lives: 2 });
+  const hitAim = aimAtEnd(hitGame, 12);
+  let hit = false;
+  let conceded = false;
+  for (let i = 0; i < 60 && !hit && !conceded; i++) {
+    hitGame.tick(DT, null);
+    for (const e of hitGame.drainEvents()) {
+      if (e.t === 'hit' && e.id === hitAim.p.id) hit = true;
+      if (e.t === 'goal' && e.id === hitAim.p.id) conceded = true;
+    }
+  }
+  assert.ok(hit, 'corner shot rebounds off the rounded cap');
+  assert.equal(conceded, false, 'corner shot does not clip through the paddle');
+  const outward = hitGame.ball.vx * hitAim.side.nx + hitGame.ball.vy * hitAim.side.ny;
+  assert.ok(outward < 0, 'corner rebound is sent back into the arena');
+
+  const missGame = makeGame(4, { lives: 2 });
+  const missAim = aimAtEnd(missGame, 20);
+  let missHit = false;
+  let missGoal = false;
+  for (let i = 0; i < 60 && !missHit && !missGoal; i++) {
+    missGame.tick(DT, null);
+    for (const e of missGame.drainEvents()) {
+      if (e.t === 'hit' && e.id === missAim.p.id) missHit = true;
+      if (e.t === 'goal' && e.id === missAim.p.id) missGoal = true;
+    }
+  }
+  assert.equal(missHit, false, 'clearly missing the cap does not bounce');
+  assert.ok(missGoal, 'a clear miss still scores');
+});
+
+test('a ball that slips behind a paddle is charged to that paddle owner', () => {
+  const game = makeGame(3, { lives: 3 });
+  const p = game.players[0];
+  const side = game.poly.sides[p.side];
+  const u = p.pc;
+  // Put the ball in the gap behind the paddle, travelling parallel to the
+  // wall. Without the behind-paddle check this can reach an adjacent wall in
+  // a triangle and charge the goal to the wrong player.
+  const depth = WORLD.PADDLE_OFFSET + WORLD.PADDLE_THICK / 2 - 12;
+  const point = {
+    x: side.p0.x + side.tx * u,
+    y: side.p0.y + side.ty * u,
+  };
+  game.phase = 'play';
+  game.serveTimer = 0;
+  game.ball.x = point.x - side.nx * depth;
+  game.ball.y = point.y - side.ny * depth;
+  game.ball.vx = side.tx * 430;
+  game.ball.vy = side.ty * 430;
+  game.ball.speed = 430;
+
+  let goalId = null;
+  for (let i = 0; i < 30 && !goalId; i++) {
+    game.tick(DT, null);
+    for (const e of game.drainEvents()) {
+      if (e.t === 'goal') goalId = e.id;
+    }
+  }
+  assert.equal(goalId, p.id, 'the paddle that was beaten concedes, not a neighbor');
+});
+
 test('speed ramp builds while nobody concedes and resets on a goal', () => {
   const game = makeGame(3, { ramp: 'fast' });
   const inputs = new Map();
